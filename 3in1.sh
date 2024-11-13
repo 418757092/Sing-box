@@ -260,11 +260,11 @@ openssl req -new -x509 -days 3650 -key "private.key" -out "cert.pem" -subj "/CN=
         ],
         "tls": {
             "enabled": true,
-            "server_name": "www.cerebrium.ai",
+            "server_name": "www.joom.com",
             "reality": {
                 "enabled": true,
                 "handshake": {
-                    "server": "www.cerebrium.ai",
+                    "server": "www.joom.com",
                     "server_port": 443
                 },
                 "private_key": "$private_key",
@@ -448,7 +448,7 @@ get_name() { if [ "$HOSTNAME" = "s1.ct8.pl" ]; then SERVER="CT8"; else SERVER=$(
 NAME="$ISP-$(get_name)"
 yellow "注意：v2ray或其他软件的跳过证书验证需设置为true,否则hy2或tuic节点可能不通\n"
 cat > list.txt <<EOF
-vless://$UUID@$IP:$vless_port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cerebrium.ai&fp=chrome&pbk=$public_key&type=tcp&headerType=none#$NAME-reality
+vless://$UUID@$IP:$vless_port?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.joom.com&fp=chrome&pbk=$public_key&type=tcp&headerType=none#$NAME-reality
 
 hysteria2://$UUID@$IP:$hy2_port/?sni=www.bing.com&alpn=h3&insecure=1#$NAME-hy2
 
