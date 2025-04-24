@@ -13,15 +13,18 @@ reading() { read -p "$(red "$1")" "$2"; }
 export LC_ALL=C
 HOSTNAME=$(hostname)
 USERNAME=$(whoami | tr '[:upper:]' '[:lower:]')
-export UUID=${UUID:-$(uuidgen -r)} 
-export NEZHA_SERVER=${NEZHA_SERVER:-''} 
-export NEZHA_PORT=${NEZHA_PORT:-''}     
-export NEZHA_KEY=${NEZHA_KEY:-''} 
+export UUID=${UUID:-$(uuidgen -r)}          
+export NEZHA_SERVER=${NEZHA_SERVER:-''}  # v1哪吒形式：nezha.abc.com:8008,v0哪吒形式：nezha.abc.com
+export NEZHA_PORT=${NEZHA_PORT:-''}      # v1哪吒不需要此变量,v0的agent端口
+export NEZHA_KEY=${NEZHA_KEY:-''}        # v1的NZ_CLIENT_SECRET或v0的agent密钥
 export ARGO_DOMAIN=${ARGO_DOMAIN:-''}   
 export ARGO_AUTH=${ARGO_AUTH:-''}
 export CFIP=${CFIP:-'www.visa.com.sg'} 
 export CFPORT=${CFPORT:-'443'} 
 export SUB_TOKEN=${SUB_TOKEN:-${UUID:0:8}}
+export CHAT_ID=${CHAT_ID:-''} 
+export BOT_TOKEN=${BOT_TOKEN:-''}
+export UPLOAD_URL=${UPLOAD_URL:-''} 
 
 if [[ "$HOSTNAME" =~ ct8 ]]; then
     CURRENT_DOMAIN="ct8.pl"
@@ -32,11 +35,13 @@ else
 fi
 WORKDIR="${HOME}/domains/${USERNAME}.${CURRENT_DOMAIN}/logs"
 FILE_PATH="${HOME}/domains/${USERNAME}.${CURRENT_DOMAIN}/public_html"
-rm -rf "$WORKDIR" && mkdir -p "$WORKDIR" "$FILE_PATH" && chmod 777 "$WORKDIR" "$FILE_PATH" >/dev/null 2>&1
+rm -rf "$WORKDIR" "$FILE_PATH" && mkdir -p "$WORKDIR" "$FILE_PATH" && chmod 777 "$WORKDIR" "$FILE_PATH" >/dev/null 2>&1
 bash -c 'ps aux | grep $(whoami) | grep -v "sshd\|bash\|grep" | awk "{print \$2}" | xargs -r kill -9 >/dev/null 2>&1' >/dev/null 2>&1
 command -v curl &>/dev/null && COMMAND="curl -so" || command -v wget &>/dev/null && COMMAND="wget -qO" || { red "Error: neither curl nor wget found, please install one of them." >&2; exit 1; }
 
 check_port () {
+clear
+purple "正在安装中,请稍等..."
 port_list=$(devil port list)
 tcp_ports=$(echo "$port_list" | grep -c "tcp")
 udp_ports=$(echo "$port_list" | grep -c "udp")
@@ -92,7 +97,8 @@ if [[ $tcp_ports -ne 1 || $udp_ports -ne 2 ]]; then
             fi
         done
     fi
-    green "端口已调整完成,将断开ssh连接,请重新连接shh重新执行脚本"
+    yellow "\n端口已调整完成,将断开ssh连接,请重新连接shh重新执行脚本"
+    quick_command
     devil binexec on >/dev/null 2>&1
     kill -9 $(ps -o ppid= -p $$) >/dev/null 2>&1
 else
@@ -101,12 +107,11 @@ else
     udp_port1=$(echo "$udp_ports" | sed -n '1p')
     udp_port2=$(echo "$udp_ports" | sed -n '2p')
 fi
-
+purple "vmess-argo使用的tcp端口为: $tcp_port"
+purple "tuic和hy2使用的udp端口分别为: $udp_port1 和 $udp_port2"
 export VMESS_PORT=$tcp_port
 export TUIC_PORT=$udp_port1
 export HY2_PORT=$udp_port2
-purple "vmess-argo使用的tcp端口: $tcp_port"
-purple "tuic和hy2分别使用的UDP端口: $udp_port1 和 $udp_port2"
 }
 
 check_website() {
@@ -132,8 +137,6 @@ index_url="https://github.com/eooce/Sing-box/releases/download/00/index.html"
 }
 
 argo_configure() {
-clear
-purple "正在安装中,请稍等..."
   if [[ -z $ARGO_AUTH || -z $ARGO_DOMAIN ]]; then
     green "ARGO_DOMAIN or ARGO_AUTH is empty,use quick tunnel"
     return
@@ -154,7 +157,7 @@ ingress:
   - service: http_status:404
 EOF
   else
-    green "ARGO_AUTH mismatch TunnelSecret,use token connect to tunnel"
+    yellow "当前使用的是token,请在cloudflare后台设置隧道端口为${purple}${VMESS_PORT}${re}"
   fi
 }
 
@@ -165,7 +168,7 @@ generate_config() {
 
   yellow "获取可用IP中,请稍等..."
   available_ip=$(get_ip)
-  purple "当前选择IP为：$available_ip 如安装完后节点不通可尝试重新安装"
+  purple "当前选择IP为: $available_ip 如安装完后节点不通可尝试重新安装"
   
 cat > config.json <<EOF
 {
@@ -541,14 +544,76 @@ tuic://$UUID:admin123@$available_ip:$TUIC_PORT?sni=www.bing.com&congestion_contr
 EOF
 cat ${FILE_PATH}/list.txt
 generate_sub_link
-yellow "\nServ00|ct8老王sing-box一键四协议安装脚本(vmess-ws|vmess-ws-tls(argo)|hysteria2|tuic)\n"
+install_keepalive
+yellow "Serv00|ct8老王sing-box一键四协议无交互安装脚本(vmess-ws|vmess-ws-tls(argo)|hysteria2|tuic)\n"
 echo -e "${green}issues反馈：${re}${yellow}https://github.com/eooce/Sing-box/issues${re}\n"
 echo -e "${green}反馈论坛：${re}${yellow}https://bbs.vps8.me${re}\n"
 echo -e "${green}TG反馈群组：${re}${yellow}https://t.me/vps888${re}\n"
 purple "转载请著名出处，请勿滥用\n"
 green "Running done!\n"
-rm -rf boot.log config.json sb.log core tunnel.yml tunnel.json fake_useragent_0.2.0.json
+rm -rf sb.log core boot.log config.json tunnel.yml tunnel.json fake_useragent_0.2.0.json
 
+}
+
+install_keepalive () {
+    purple "正在安装保活服务中,请稍等......"
+    devil www del keep.${USERNAME}.${CURRENT_DOMAIN} > /dev/null 2>&1
+    devil www add keep.${USERNAME}.${CURRENT_DOMAIN} nodejs /usr/local/bin/node18 > /dev/null 2>&1
+    keep_path="$HOME/domains/keep.${USERNAME}.${CURRENT_DOMAIN}/public_nodejs"
+    [ -d "$keep_path" ] || mkdir -p "$keep_path"
+    app_file_url="https://00.ssss.nyc.mn/sbx4.js"
+    $COMMAND "${keep_path}/app.js" "$app_file_url"
+
+    cat > ${keep_path}/.env <<EOF
+UUID=${UUID}
+CFIP=${CFIP}
+CFPORT=${CFPORT}
+SUB_TOKEN=${SUB_TOKEN}
+API_SUB_URL=${UPLOAD_URL}
+TELEGRAM_CHAT_ID=${CHAT_ID}
+TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
+NEZHA_SERVER=${NEZHA_SERVER}
+NEZHA_PORT=${NEZHA_PORT}
+NEZHA_KEY=${NEZHA_KEY}
+ARGO_DOMAIN=${ARGO_DOMAIN}
+ARGO_AUTH=$([[ -z "$ARGO_AUTH" ]] && echo "" || ([[ "$ARGO_AUTH" =~ ^\{.* ]] && echo "'$ARGO_AUTH'" || echo "$ARGO_AUTH"))
+EOF
+    ln -fs /usr/local/bin/node18 ~/bin/node > /dev/null 2>&1
+    ln -fs /usr/local/bin/npm18 ~/bin/npm > /dev/null 2>&1
+    mkdir -p ~/.npm-global
+    npm config set prefix '~/.npm-global'
+    echo 'export PATH=~/.npm-global/bin:~/bin:$PATH' >> $HOME/.bash_profile && source $HOME/.bash_profile
+    rm -rf $HOME/.npmrc > /dev/null 2>&1
+    cd ${keep_path} && npm install dotenv axios --silent > /dev/null 2>&1
+    rm $HOME/domains/keep.${USERNAME}.${CURRENT_DOMAIN}/public_nodejs/public/index.html > /dev/null 2>&1
+    # devil www options keep.${USERNAME}.${CURRENT_DOMAIN} sslonly on > /dev/null 2>&1
+    devil www restart keep.${USERNAME}.${CURRENT_DOMAIN} > /dev/null 2>&1
+    if curl -skL "http://keep.${USERNAME}.${CURRENT_DOMAIN}/${USERNAME}" | grep -q "running"; then
+        green "\n全自动保活服务安装成功\n"
+	green "所有服务都运行正常,全自动保活任务添加成功\n\n"
+        purple "访问 http://keep.${USERNAME}.${CURRENT_DOMAIN}/stop 结束进程\n"
+        purple "访问 http://keep.${USERNAME}.${CURRENT_DOMAIN}/list 全部进程列表\n"
+        yellow "访问 http://keep.${USERNAME}.${CURRENT_DOMAIN}/${USERNAME} 调起保活程序   备用保活路径: /run  /go  /start\n"
+        purple "访问 http://keep.${USERNAME}.${CURRENT_DOMAIN}/status 查看进程状态\n\n"
+        purple "如果需要TG通知,在${yellow}https://t.me/laowang_serv00_bot${re}${purple}获取CHAT_ID,并带CHAT_ID环境变量运行${re}\n\n"
+        quick_command
+    else
+        red "\n全自动保活服务安装失败,存在未运行的进程\n访问 ${yellow}http://keep.${USERNAME}.${CURRENT_DOMAIN}/status ${red}检查,建议执行以下命令后重装: \n\ndevil www del ${USERNAME}.${CURRENT_DOMAIN}\ndevil www del keep.${USERNAME}.${CURRENT_DOMAIN}\nrm -rf $HOME/domains/*\nshopt -s extglob dotglob\nrm -rf $HOME/!(domains|mail|repo|backups)\n\n${re}"
+    fi
+}
+
+quick_command() {
+  COMMAND="00"
+  SCRIPT_PATH="$HOME/bin/$COMMAND"
+  mkdir -p "$HOME/bin"
+  echo "#!/bin/bash" > "$SCRIPT_PATH"
+  echo "bash <(curl -Ls https://raw.githubusercontent.com/eooce/sing-box/main/sb_serv00.sh)" >> "$SCRIPT_PATH"
+  chmod +x "$SCRIPT_PATH"
+  if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
+      echo "export PATH=\"\$HOME/bin:\$PATH\"" >> "$HOME/.bashrc" 2>/dev/null
+      source "$HOME/.bashrc"
+  fi
+  green "快捷指令00创建成功,下次运行输入00快速启动\n"
 }
 
 install_singbox() {
